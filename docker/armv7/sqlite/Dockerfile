@@ -75,7 +75,7 @@ ENV ROCKET_WORKERS=10
 RUN [ "cross-build-start" ]
 
 # Install needed libraries
-RUN apk update && apk add openssl curl sqlite
+RUN apk update && apk add openssl curl sqlite catatonit
 
 RUN mkdir /data
 
@@ -92,9 +92,10 @@ COPY --from=vault /web-vault ./web-vault
 COPY --from=build /app/target/armv7-unknown-linux-musleabihf/release/bitwarden_rs .
 
 COPY docker/healthcheck.sh /healthcheck.sh
+COPY docker/entrypoint.sh /entrypoint.sh
 
 HEALTHCHECK --interval=60s --timeout=10s CMD ["/healthcheck.sh"]
 
 # Configures the startup!
 WORKDIR /
-CMD ["/bitwarden_rs"]
+ENTRYPOINT ["/entrypoint.sh"]
