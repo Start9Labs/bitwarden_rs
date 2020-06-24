@@ -1,4 +1,5 @@
-#![feature(proc_macro_hygiene, vec_remove_item, try_trait, ip)]
+#![forbid(unsafe_code)]
+#![feature(proc_macro_hygiene, try_trait, ip)]
 #![recursion_limit = "256"]
 
 extern crate openssl;
@@ -14,19 +15,15 @@ extern crate log;
 extern crate diesel;
 #[macro_use]
 extern crate diesel_migrations;
-#[macro_use]
-extern crate derive_more;
-#[macro_use]
-extern crate num_derive;
-
-extern crate backtrace;
 
 use std::{
+    fmt, // For panic logging
     fs::create_dir_all,
+    panic,
     path::Path,
     process::{exit, Command},
     str::FromStr,
-    panic, thread, fmt // For panic logging
+    thread,
 };
 
 #[macro_use]
@@ -88,7 +85,7 @@ fn main() {
 fn parse_args() {
     let opt = Opt::from_args();
     if opt.version {
-        if let Some(version) = option_env!("GIT_VERSION") {
+        if let Some(version) = option_env!("BWRS_VERSION") {
             println!("bitwarden_rs {}", version);
         } else {
             println!("bitwarden_rs (Version info from Git not present)");
@@ -101,14 +98,17 @@ fn launch_info() {
     println!("/--------------------------------------------------------------------\\");
     println!("|                       Starting Bitwarden_RS                        |");
 
-    if let Some(version) = option_env!("GIT_VERSION") {
+    if let Some(version) = option_env!("BWRS_VERSION") {
         println!("|{:^68}|", format!("Version {}", version));
     }
 
     println!("|--------------------------------------------------------------------|");
     println!("| This is an *unofficial* Bitwarden implementation, DO NOT use the   |");
     println!("| official channels to report bugs/features, regardless of client.   |");
-    println!("| Report URL: https://github.com/dani-garcia/bitwarden_rs/issues/new |");
+    println!("| Send usage/configuration questions or feature requests to:         |");
+    println!("|   https://bitwardenrs.discourse.group/                             |");
+    println!("| Report suspected bugs/issues in the software itself at:            |");
+    println!("|   https://github.com/dani-garcia/bitwarden_rs/issues/new           |");
     println!("\\--------------------------------------------------------------------/\n");
 }
 
@@ -180,15 +180,13 @@ fn init_logging(level: log::LevelFilter) -> Result<(), fern::InitError> {
                     Shim(backtrace)
                 );
             }
-            None => {
-                error!(
-                    target: "panic",
-                    "thread '{}' panicked at '{}'{:?}",
-                    thread,
-                    msg,
-                    Shim(backtrace)
-                )
-            }
+            None => error!(
+                target: "panic",
+                "thread '{}' panicked at '{}'{:?}",
+                thread,
+                msg,
+                Shim(backtrace)
+            ),
         }
     }));
 
@@ -323,19 +321,26 @@ mod migrations {
         let connection = crate::db::get_connection().expect("Can't connect to DB");
 
         use std::io::stdout;
+
+        // Disable Foreign Key Checks during migration
+        use diesel::RunQueryDsl;
+        #[cfg(feature = "postgres")]
+        diesel::sql_query("SET CONSTRAINTS ALL DEFERRED").execute(&connection).expect("Failed to disable Foreign Key Checks during migrations");
+        #[cfg(feature = "mysql")]
+        diesel::sql_query("SET FOREIGN_KEY_CHECKS = 0").execute(&connection).expect("Failed to disable Foreign Key Checks during migrations");
+        #[cfg(feature = "sqlite")]
+        diesel::sql_query("PRAGMA defer_foreign_keys = ON").execute(&connection).expect("Failed to disable Foreign Key Checks during migrations");
+
         embedded_migrations::run_with_output(&connection, &mut stdout()).expect("Can't run migrations");
     }
 }
 
 fn launch_rocket(extra_debug: bool) {
-    // Create Rocket object, this stores current log level and sets its own
-    let rocket = rocket::ignite();
-
     let basepath = &CONFIG.domain_path();
 
     // If adding more paths here, consider also adding them to
     // crate::utils::LOGGED_ROUTES to make sure they appear in the log
-    let rocket = rocket
+    let result = rocket::ignite()
         .mount(&[basepath, "/"].concat(), api::web_routes())
         .mount(&[basepath, "/api"].concat(), api::core_routes())
         .mount(&[basepath, "/admin"].concat(), api::admin_routes())
@@ -346,9 +351,10 @@ fn launch_rocket(extra_debug: bool) {
         .manage(api::start_notification_server())
         .attach(util::AppHeaders())
         .attach(util::CORS())
-        .attach(util::BetterLogging(extra_debug));
+        .attach(util::BetterLogging(extra_debug))
+        .launch();
 
     // Launch and print error if there is one
     // The launch will restore the original logging level
-    error!("Launch error {:#?}", rocket.launch());
+    error!("Launch error {:#?}", result);
 }

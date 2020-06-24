@@ -2,7 +2,6 @@ use chrono::Utc;
 use data_encoding::BASE64;
 use rocket::Route;
 use rocket_contrib::json::Json;
-use serde_json;
 
 use crate::api::core::two_factor::_generate_recover_code;
 use crate::api::{ApiResult, EmptyResult, JsonResult, JsonUpcase, PasswordData};
@@ -21,9 +20,9 @@ pub fn routes() -> Vec<Route> {
 
 #[derive(Serialize, Deserialize)]
 struct DuoData {
-    host: String,
-    ik: String,
-    sk: String,
+    host: String, // Duo API hostname
+    ik: String,   // integration key
+    sk: String,   // secret key
 }
 
 impl DuoData {
@@ -190,6 +189,7 @@ fn duo_api_request(method: &str, path: &str, params: &str, data: &DuoData) -> Em
     use reqwest::{header::*, Method, blocking::Client};
     use std::str::FromStr;
 
+    // https://duo.com/docs/authapi#api-details
     let url = format!("https://{}{}", &data.host, path);
     let date = Utc::now().to_rfc2822();
     let username = &data.ik;
@@ -268,6 +268,10 @@ fn sign_duo_values(key: &str, email: &str, ikey: &str, prefix: &str, expire: i64
 }
 
 pub fn validate_duo_login(email: &str, response: &str, conn: &DbConn) -> EmptyResult {
+    // email is as entered by the user, so it needs to be normalized before
+    // comparison with auth_user below.
+    let email = &email.to_lowercase();
+
     let split: Vec<&str> = response.split(':').collect();
     if split.len() != 2 {
         err!("Invalid response length");

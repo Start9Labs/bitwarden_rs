@@ -10,12 +10,12 @@
 #  It can be viewed in multiple ways:
 #  - From the https://hub.docker.com/repository/docker/bitwardenrs/web-vault/tags page, click the tag name and the digest should be there.
 #  - From the console, with the following commands:
-#      docker pull bitwardenrs/web-vault:v2.12.0e
-#      docker image inspect --format "{{.RepoDigests}}" bitwardenrs/web-vault:v2.12.0e
-#      
+#      docker pull bitwardenrs/web-vault:v2.14.0
+#      docker image inspect --format "{{.RepoDigests}}" bitwardenrs/web-vault:v2.14.0
+#
 #  - To do the opposite, and get the tag from the hash, you can do:
-#      docker image inspect --format "{{.RepoTags}}" bitwardenrs/web-vault@sha256:feb3f46d15738191b9043be4cdb1be2c0078ed411e7b7be73a2f4fcbca01e13c
-FROM bitwardenrs/web-vault@sha256:feb3f46d15738191b9043be4cdb1be2c0078ed411e7b7be73a2f4fcbca01e13c as vault
+#      docker image inspect --format "{{.RepoTags}}" bitwardenrs/web-vault@sha256:c62e0b8698562e03fe2759374f3ecd760d9612e4eaf0af4583f231ebf05d6df5
+FROM bitwardenrs/web-vault@sha256:c62e0b8698562e03fe2759374f3ecd760d9612e4eaf0af4583f231ebf05d6df5 as vault
 
 ########################## BUILD IMAGE  ##########################
 # We need to use the Rust build image, because
@@ -86,9 +86,9 @@ COPY Rocket.toml .
 COPY --from=vault /web-vault ./web-vault
 COPY --from=build app/target/release/bitwarden_rs .
 
-COPY docker/healthcheck.sh ./healthcheck.sh
+COPY docker/healthcheck.sh /healthcheck.sh
 
-HEALTHCHECK --interval=30s --timeout=3s CMD sh healthcheck.sh || exit 1
+HEALTHCHECK --interval=60s --timeout=10s CMD ["/healthcheck.sh"]
 
 # Configures the startup!
 WORKDIR /
