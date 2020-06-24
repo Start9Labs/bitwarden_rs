@@ -75,7 +75,8 @@ ENV ROCKET_WORKERS=10
 RUN [ "cross-build-start" ]
 
 # Install needed libraries
-RUN apk update && apk add openssl curl sqlite catatonit
+RUN apk update && apk add openssl curl sqlite
+RUN apk add --no-cache -X http://dl-cdn.alpinelinux.org/alpine/edge/testing catatonit
 
 RUN mkdir /data
 
