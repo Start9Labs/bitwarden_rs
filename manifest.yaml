@@ -1,0 +1,18 @@
+compat: v0
+id: bitwarden
+version: "1.14.0"
+title: "Bitwarden Server"
+description:
+  short: "An Open Source Password Manager"
+  long: "A free and open-source password management service that stores sensitive information such as website credentials in an encrypted vault."
+release-notes: Initial release
+ports:
+  - internal: 80
+    tor: 80
+  - internal: 3012
+    tor: 3012
+image:
+  type: tar
+mount: /data
+assets: []
+hidden-service-version: v3
