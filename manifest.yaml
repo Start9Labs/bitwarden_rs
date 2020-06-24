@@ -1,11 +1,15 @@
 compat: v0
 id: bitwarden
-version: "1.14.0"
+version: "1.15.1"
 title: "Bitwarden Server"
 description:
   short: "An Open Source Password Manager"
-  long: "A free and open-source password management service that stores sensitive information such as website credentials in an encrypted vault."
-release-notes: Initial release
+  long: "A free and open-source password management service that stores sensitive information such as website credentials in an encrypted vault. From https://github.com/dani-garcia/bitwarden_rs."
+release-notes: |
+  - Fixed error when cloning attachments with ciphers, note that attachments are not cloned
+  - Fixed version check when a commit hasn't been made since the last release
+  - Added openssl extern crate to fix some builds
+  - Updated admin page, added attachments count per user and users count per organization and fixed issue with DNS not resolving
 ports:
   - internal: 80
     tor: 80
