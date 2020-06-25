@@ -20,7 +20,7 @@ FROM bitwardenrs/web-vault@sha256:c62e0b8698562e03fe2759374f3ecd760d9612e4eaf0af
 ########################## BUILD IMAGE  ##########################
 # We need to use the Rust build image, because
 # we need the Rust compiler and Cargo tooling
-FROM rust:1.40 as build
+FROM messense/rust-musl-cross:armv7-musleabihf as build
 
 # set sqlite as default for DB ARG for backward compatibility
 ARG DB=sqlite
@@ -30,24 +30,6 @@ ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC TERM=xterm-256color
 
 # Don't download rust docs
 RUN rustup set profile minimal
-
-# Install required build libs for armhf architecture.
-RUN sed 's/^deb/deb-src/' /etc/apt/sources.list > \
-        /etc/apt/sources.list.d/deb-src.list \
-    && dpkg --add-architecture armhf \
-    && apt-get update \
-    && apt-get install -y \
-        --no-install-recommends \
-        libssl-dev:armhf \
-        libc6-dev:armhf
-
-RUN apt-get update \
-    && apt-get install -y \
-        --no-install-recommends \
-        gcc-arm-linux-gnueabihf \
-    && mkdir -p ~/.cargo \
-    && echo '[target.armv7-unknown-linux-gnueabihf]' >> ~/.cargo/config \
-    && echo 'linker = "arm-linux-gnueabihf-gcc"' >> ~/.cargo/config
 
 ENV CARGO_HOME "/root/.cargo"
 ENV USER "root"
@@ -61,11 +43,8 @@ COPY ./Cargo.* ./
 COPY ./rust-toolchain ./rust-toolchain
 COPY ./build.rs ./build.rs
 
-ENV CC_armv7_unknown_linux_gnueabihf="/usr/bin/arm-linux-gnueabihf-gcc"
 ENV CROSS_COMPILE="1"
-ENV OPENSSL_INCLUDE_DIR="/usr/include/arm-linux-gnueabihf"
-ENV OPENSSL_LIB_DIR="/usr/lib/arm-linux-gnueabihf"
-RUN rustup target add armv7-unknown-linux-gnueabihf
+RUN rustup target add armv7-unknown-linux-musleabihf
 # Builds your dependencies and removes the
 # dummy project, except the target folder
 # This folder contains the compiled dependencies
@@ -81,12 +60,13 @@ RUN touch src/main.rs
 
 # Builds again, this time it'll just be
 # your actual source files being built
-RUN cargo build --features ${DB} --release --target=armv7-unknown-linux-gnueabihf
+RUN cargo build --features ${DB} --release --target=armv7-unknown-linux-musleabihf
+RUN musl-strip target/armv7-unknown-linux-musleabihf/release/bitwarden_rs
 
 ######################## RUNTIME IMAGE  ########################
 # Create a new stage with a minimal image
 # because we already have a binary built
-FROM balenalib/armv7hf-debian:buster
+FROM cmosh/alpine-arm
 
 ENV ROCKET_ENV "staging"
 ENV ROCKET_PORT=80
@@ -95,13 +75,8 @@ ENV ROCKET_WORKERS=10
 RUN [ "cross-build-start" ]
 
 # Install needed libraries
-RUN apt-get update && apt-get install -y \
-    --no-install-recommends \
-    openssl \
-    ca-certificates \
-    curl \
-    sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk update && apk add openssl curl sqlite
+RUN apk add --no-cache -X http://dl-cdn.alpinelinux.org/alpine/edge/testing catatonit
 
 RUN mkdir /data
 
@@ -115,12 +90,13 @@ EXPOSE 3012
 # and the binary from the "build" stage to the current stage
 COPY Rocket.toml .
 COPY --from=vault /web-vault ./web-vault
-COPY --from=build /app/target/armv7-unknown-linux-gnueabihf/release/bitwarden_rs .
+COPY --from=build /app/target/armv7-unknown-linux-musleabihf/release/bitwarden_rs .
 
 COPY docker/healthcheck.sh /healthcheck.sh
+COPY docker/entrypoint.sh /entrypoint.sh
 
 HEALTHCHECK --interval=60s --timeout=10s CMD ["/healthcheck.sh"]
 
 # Configures the startup!
 WORKDIR /
-CMD ["/bitwarden_rs"]
+ENTRYPOINT ["/entrypoint.sh"]

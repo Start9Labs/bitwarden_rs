@@ -1,0 +1,29 @@
+compat: v0
+id: bitwarden
+version: "1.15.0"
+title: "Bitwarden Server"
+description:
+  short: "An Open Source Password Manager"
+  long: "A free and open-source password management service that stores sensitive information such as website credentials in an encrypted vault. From https://github.com/dani-garcia/bitwarden_rs."
+release-notes: |
+  IMPORTANT: This is a required update when using newer clients, otherwise the delete functionality won't work
+    - Added support for soft deletion of items (trash functionality)
+    - Redesigned admin page:
+    - Separated into multiple pages
+      - Icon to indicate users verified emails, and counter of the number of items they have
+      - Added diagnostics page
+    - Updated web vault to 2.14
+    - Added IP address to the logs on TOTP failure, alowing fail2ban use
+    - Some email and domain whitelist fixes
+    - Fixed issue deleting notes in PostgreSQL
+    - Updated dependencies and other bug fixes
+ports:
+  - internal: 80
+    tor: 80
+  - internal: 3012
+    tor: 3012
+image:
+  type: tar
+mount: /data
+assets: []
+hidden-service-version: v3

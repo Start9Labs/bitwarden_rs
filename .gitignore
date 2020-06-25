@@ -14,3 +14,7 @@ data
 
 # Web vault
 web-vault
+
+# Start9
+bitwarden.s9pk
+image.tar
