@@ -1,0 +1,24 @@
+compat: v0
+id: bitwarden
+version: "1.14.2"
+title: "Bitwarden Server"
+description:
+  short: "An Open Source Password Manager"
+  long: "A free and open-source password management service that stores sensitive information such as website credentials in an encrypted vault. From https://github.com/dani-garcia/bitwarden_rs."
+release-notes: |
+  - Fixed bug with sync error in mobile clients.
+  - Update web vault to 2.13.2.
+  - Fix websockets missing id.
+  - Improvements to docker health check, including subdirectory support.
+  - Allow changing the build version with BWRS_VERSION env variable during cargo build.
+  - Other dependency updates and bug fixes.
+ports:
+  - internal: 80
+    tor: 80
+  - internal: 3012
+    tor: 3012
+image:
+  type: tar
+mount: /data
+assets: []
+hidden-service-version: v3
