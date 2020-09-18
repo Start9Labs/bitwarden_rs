@@ -1,15 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use rocket::http::ContentType;
-use rocket::response::content::Content;
-use rocket::response::NamedFile;
-use rocket::Route;
+use rocket::{http::ContentType, response::content::Content, response::NamedFile, Route};
 use rocket_contrib::json::Json;
 use serde_json::Value;
 
-use crate::error::Error;
-use crate::util::Cached;
-use crate::CONFIG;
+use crate::{error::Error, util::Cached, CONFIG};
 
 pub fn routes() -> Vec<Route> {
     // If addding more routes here, consider also adding them to
@@ -83,7 +78,7 @@ fn static_files(filename: String) -> Result<Content<&'static [u8]>, Error> {
         "hibp.png" => Ok(Content(ContentType::PNG, include_bytes!("../static/images/hibp.png"))),
 
         "bootstrap.css" => Ok(Content(ContentType::CSS, include_bytes!("../static/scripts/bootstrap.css"))),
-        "bootstrap-native-v4.js" => Ok(Content(ContentType::JavaScript, include_bytes!("../static/scripts/bootstrap-native-v4.js"))),
+        "bootstrap-native.js" => Ok(Content(ContentType::JavaScript, include_bytes!("../static/scripts/bootstrap-native.js"))),
         "md5.js" => Ok(Content(ContentType::JavaScript, include_bytes!("../static/scripts/md5.js"))),
         "identicon.js" => Ok(Content(ContentType::JavaScript, include_bytes!("../static/scripts/identicon.js"))),
         _ => err!(format!("Static file not found: {}", filename)),

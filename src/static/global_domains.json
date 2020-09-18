@@ -39,8 +39,7 @@
     "Type": 1,
     "Domains": [
       "apple.com",
-      "icloud.com",
-      "tv.apple.com"
+      "icloud.com"
     ],
     "Excluded": false
   },
@@ -106,6 +105,7 @@
       "passport.net",
       "windows.com",
       "microsoftonline.com",
+      "office.com",
       "office365.com",
       "microsoftstore.com",
       "xbox.com",
@@ -185,15 +185,21 @@
     "Type": 18,
     "Domains": [
       "amazon.com",
-      "amazon.co.uk",
+      "amazon.ae",
       "amazon.ca",
-      "amazon.de",
-      "amazon.fr",
-      "amazon.es",
-      "amazon.it",
+      "amazon.co.uk",
       "amazon.com.au",
-      "amazon.co.nz",
-      "amazon.in"
+      "amazon.com.br",
+      "amazon.com.mx",
+      "amazon.com.tr",
+      "amazon.de",
+      "amazon.es",
+      "amazon.fr",
+      "amazon.in",
+      "amazon.it",
+      "amazon.nl",
+      "amazon.sa",
+      "amazon.sg"
     ],
     "Excluded": false
   },
@@ -386,8 +392,7 @@
       "alibaba.com",
       "aliexpress.com",
       "aliyun.com",
-      "net.cn",
-      "www.net.cn"
+      "net.cn"
     ],
     "Excluded": false
   },
@@ -583,11 +588,28 @@
     "Type": 64,
     "Domains": [
       "ebay.com",
-      "ebay.de",
+      "ebay.at",
+      "ebay.be",
       "ebay.ca",
-      "ebay.in",
+      "ebay.ch",
+      "ebay.cn",
+      "ebay.co.jp",
+      "ebay.co.th",
       "ebay.co.uk",
-      "ebay.com.au"
+      "ebay.com.au",
+      "ebay.com.hk",
+      "ebay.com.my",
+      "ebay.com.sg",
+      "ebay.com.tw",
+      "ebay.de",
+      "ebay.es",
+      "ebay.fr",
+      "ebay.ie",
+      "ebay.in",
+      "ebay.it",
+      "ebay.nl",
+      "ebay.ph",
+      "ebay.pl"
     ],
     "Excluded": false
   },
@@ -717,41 +739,27 @@
       "eventbrite.ca",
       "eventbrite.ch",
       "eventbrite.cl",
-      "eventbrite.co.id",
-      "eventbrite.co.in",
-      "eventbrite.co.kr",
+      "eventbrite.co",
       "eventbrite.co.nz",
       "eventbrite.co.uk",
-      "eventbrite.co.ve",
       "eventbrite.com",
+      "eventbrite.com.ar",
       "eventbrite.com.au",
-      "eventbrite.com.bo",
       "eventbrite.com.br",
-      "eventbrite.com.co",
-      "eventbrite.com.hk",
-      "eventbrite.com.hn",
+      "eventbrite.com.mx",
       "eventbrite.com.pe",
-      "eventbrite.com.sg",
-      "eventbrite.com.tr",
-      "eventbrite.com.tw",
-      "eventbrite.cz",
       "eventbrite.de",
       "eventbrite.dk",
+      "eventbrite.es",
       "eventbrite.fi",
       "eventbrite.fr",
-      "eventbrite.gy",
-      "eventbrite.hu",
+      "eventbrite.hk",
       "eventbrite.ie",
-      "eventbrite.is",
       "eventbrite.it",
-      "eventbrite.jp",
-      "eventbrite.mx",
       "eventbrite.nl",
-      "eventbrite.no",
-      "eventbrite.pl",
       "eventbrite.pt",
-      "eventbrite.ru",
-      "eventbrite.se"
+      "eventbrite.se",
+      "eventbrite.sg"
     ],
     "Excluded": false
   },
@@ -770,22 +778,13 @@
   {
     "Type": 75,
     "Domains": [
-      "netcup.de",
-      "netcup.eu",
-      "customercontrolpanel.de"
-    ],
-    "Excluded": false
-  },
-  {
-    "Type": 76,
-    "Domains": [
       "docusign.com",
       "docusign.net"
     ],
     "Excluded": false
   },
   {
-    "Type": 77,
+    "Type": 76,
     "Domains": [
       "envato.com",
       "themeforest.net",
@@ -799,7 +798,7 @@
     "Excluded": false
   },
   {
-    "Type": 78,
+    "Type": 77,
     "Domains": [
       "x10hosting.com",
       "x10premium.com"
@@ -807,7 +806,7 @@
     "Excluded": false
   },
   {
-    "Type": 79,
+    "Type": 78,
     "Domains": [
       "dnsomatic.com",
       "opendns.com",
@@ -816,7 +815,7 @@
     "Excluded": false
   },
   {
-    "Type": 80,
+    "Type": 79,
     "Domains": [
       "cagreatamerica.com",
       "canadaswonderland.com",
@@ -835,10 +834,55 @@
     "Excluded": false
   },
   {
-    "Type": 81,
+    "Type": 80,
     "Domains": [
       "ubnt.com",
       "ui.com"
+    ],
+    "Excluded": false
+  },
+  {
+    "Type": 81,
+    "Domains": [
+      "discordapp.com",
+      "discord.com"
+    ],
+    "Excluded": false
+  },
+  {
+    "Type": 82,
+    "Domains": [
+      "netcup.de",
+      "netcup.eu",
+      "customercontrolpanel.de"
+    ],
+    "Excluded": false
+  },
+  {
+    "Type": 83,
+    "Domains": [
+      "yandex.com",
+      "ya.ru",
+      "yandex.az",
+      "yandex.by",
+      "yandex.co.il",
+      "yandex.com.am",
+      "yandex.com.ge",
+      "yandex.com.tr",
+      "yandex.ee",
+      "yandex.fi",
+      "yandex.fr",
+      "yandex.kg",
+      "yandex.kz",
+      "yandex.lt",
+      "yandex.lv",
+      "yandex.md",
+      "yandex.pl",
+      "yandex.ru",
+      "yandex.tj",
+      "yandex.tm",
+      "yandex.ua",
+      "yandex.uz"
     ],
     "Excluded": false
   }

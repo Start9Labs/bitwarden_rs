@@ -1,17 +1,14 @@
-use rocket::request::Form;
-use rocket::Route;
+use num_traits::FromPrimitive;
+use rocket::{request::Form, Route};
 use rocket_contrib::json::Json;
 use serde_json::Value;
-use num_traits::FromPrimitive;
 
-use crate::api::{
-    EmptyResult, JsonResult, JsonUpcase, JsonUpcaseVec, Notify, NumberOrString, PasswordData, UpdateType,
+use crate::{
+    api::{EmptyResult, JsonResult, JsonUpcase, JsonUpcaseVec, Notify, NumberOrString, PasswordData, UpdateType},
+    auth::{decode_invite, AdminHeaders, Headers, OwnerHeaders},
+    db::{models::*, DbConn},
+    mail, CONFIG,
 };
-use crate::auth::{decode_invite, AdminHeaders, Headers, OwnerHeaders};
-use crate::db::models::*;
-use crate::db::DbConn;
-use crate::mail;
-use crate::CONFIG;
 
 pub fn routes() -> Vec<Route> {
     routes![
@@ -50,6 +47,7 @@ pub fn routes() -> Vec<Route> {
         list_policies_token,
         get_policy,
         put_policy,
+        get_plans,
     ]
 }
 
@@ -79,6 +77,10 @@ struct NewCollectionData {
 
 #[post("/organizations", data = "<data>")]
 fn create_organization(headers: Headers, data: JsonUpcase<OrgData>, conn: DbConn) -> JsonResult {
+    if !CONFIG.is_org_creation_allowed(&headers.user.email) {
+        err!("User not allowed to create organizations")
+    }
+
     let data: OrgData = data.into_inner().data;
 
     let org = Organization::new(data.Name, data.BillingEmail);
@@ -374,7 +376,7 @@ fn get_collection_users(org_id: String, coll_id: String, _headers: AdminHeaders,
         .map(|col_user| {
             UserOrganization::find_by_user_and_org(&col_user.user_uuid, &org_id, &conn)
                 .unwrap()
-                .to_json_read_only(col_user.read_only)
+                .to_json_user_access_restrictions(&col_user)
         })
         .collect();
 
@@ -408,7 +410,9 @@ fn put_collection_users(
             continue;
         }
 
-        CollectionUser::save(&user.user_uuid, &coll_id, d.ReadOnly, &conn)?;
+        CollectionUser::save(&user.user_uuid, &coll_id,
+                             d.ReadOnly, d.HidePasswords,
+                             &conn)?;
     }
 
     Ok(())
@@ -452,6 +456,7 @@ fn get_org_users(org_id: String, _headers: AdminHeaders, conn: DbConn) -> JsonRe
 struct CollectionData {
     Id: String,
     ReadOnly: bool,
+    HidePasswords: bool,
 }
 
 #[derive(Deserialize)]
@@ -523,7 +528,9 @@ fn send_invite(org_id: String, data: JsonUpcase<InviteData>, headers: AdminHeade
                 match Collection::find_by_uuid_and_org(&col.Id, &org_id, &conn) {
                     None => err!("Collection not found in Organization"),
                     Some(collection) => {
-                        CollectionUser::save(&user.uuid, &collection.uuid, col.ReadOnly, &conn)?;
+                        CollectionUser::save(&user.uuid, &collection.uuid,
+                                             col.ReadOnly, col.HidePasswords,
+                                             &conn)?;
                     }
                 }
             }
@@ -778,7 +785,9 @@ fn edit_user(
             match Collection::find_by_uuid_and_org(&col.Id, &org_id, &conn) {
                 None => err!("Collection not found in Organization"),
                 Some(collection) => {
-                    CollectionUser::save(&user_to_edit.user_uuid, &collection.uuid, col.ReadOnly, &conn)?;
+                    CollectionUser::save(&user_to_edit.user_uuid, &collection.uuid,
+                                         col.ReadOnly, col.HidePasswords,
+                                         &conn)?;
                 }
             }
         }
@@ -928,7 +937,7 @@ fn list_policies_token(org_id: String, token: String, conn: DbConn) -> JsonResul
     if invite_org_id != org_id {
         err!("Token doesn't match request organization");
     }
-    
+
     // TODO: We receive the invite token as ?token=<>, validate it contains the org id
     let policies = OrgPolicy::find_by_org(&org_id, &conn);
     let policies_json: Vec<Value> = policies.iter().map(OrgPolicy::to_json).collect();
@@ -982,4 +991,56 @@ fn put_policy(org_id: String, pol_type: i32, data: Json<PolicyData>, _headers: A
     policy.save(&conn)?;
 
     Ok(Json(policy.to_json()))
+}
+
+#[get("/plans")]
+fn get_plans(_headers: Headers, _conn: DbConn) -> JsonResult {
+    Ok(Json(json!({
+        "Object": "list",
+        "Data": [
+        {
+            "Object": "plan",
+            "Type": 0,
+            "Product": 0,
+            "Name": "Free",
+            "IsAnnual": false,
+            "NameLocalizationKey": "planNameFree",
+            "DescriptionLocalizationKey": "planDescFree",
+            "CanBeUsedByBusiness": false,
+            "BaseSeats": 2,
+            "BaseStorageGb": null,
+            "MaxCollections": 2,
+            "MaxUsers": 2,
+            "HasAdditionalSeatsOption": false,
+            "MaxAdditionalSeats": null,
+            "HasAdditionalStorageOption": false,
+            "MaxAdditionalStorage": null,
+            "HasPremiumAccessOption": false,
+            "TrialPeriodDays": null,
+            "HasSelfHost": false,
+            "HasPolicies": false,
+            "HasGroups": false,
+            "HasDirectory": false,
+            "HasEvents": false,
+            "HasTotp": false,
+            "Has2fa": false,
+            "HasApi": false,
+            "HasSso": false,
+            "UsersGetPremium": false,
+            "UpgradeSortOrder": -1,
+            "DisplaySortOrder": -1,
+            "LegacyYear": null,
+            "Disabled": false,
+            "StripePlanId": null,
+            "StripeSeatPlanId": null,
+            "StripeStoragePlanId": null,
+            "StripePremiumAccessPlanId": null,
+            "BasePrice": 0.0,
+            "SeatPrice": 0.0,
+            "AdditionalStoragePricePerGb": 0.0,
+            "PremiumAccessOptionPrice": 0.0
+            }
+        ],
+        "ContinuationToken": null
+    })))
 }

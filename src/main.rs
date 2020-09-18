@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![feature(proc_macro_hygiene, try_trait, ip)]
+#![cfg_attr(feature = "unstable", feature(ip))]
 #![recursion_limit = "256"]
 
 extern crate openssl;
@@ -17,7 +17,6 @@ extern crate diesel;
 extern crate diesel_migrations;
 
 use std::{
-    fmt, // For panic logging
     fs::create_dir_all,
     panic,
     path::Path,
@@ -26,30 +25,21 @@ use std::{
     thread,
 };
 
+use structopt::StructOpt;
+
 #[macro_use]
 mod error;
 mod api;
 mod auth;
 mod config;
 mod crypto;
+#[macro_use]
 mod db;
 mod mail;
 mod util;
 
 pub use config::CONFIG;
 pub use error::{Error, MapResult};
-
-use structopt::StructOpt;
-
-// Used for catching panics and log them to file instead of stderr
-use backtrace::Backtrace;
-struct Shim(Backtrace);
-
-impl fmt::Debug for Shim {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "\n{:?}", self.0)
-    }
-}
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "bitwarden_rs", about = "A Bitwarden API server written in Rust")]
@@ -72,10 +62,8 @@ fn main() {
         _ => false,
     };
 
-    check_db();
     check_rsa_keys();
     check_web_vault();
-    migrations::run_migrations();
 
     create_icon_cache_folder();
 
@@ -130,8 +118,8 @@ fn init_logging(level: log::LevelFilter) -> Result<(), fern::InitError> {
     if CONFIG.extended_logging() {
         logger = logger.format(|out, message, record| {
             out.finish(format_args!(
-                "{}[{}][{}] {}",
-                chrono::Local::now().format("[%Y-%m-%d %H:%M:%S]"),
+                "[{}][{}][{}] {}",
+                chrono::Local::now().format(&CONFIG.log_timestamp_format()),
                 record.target(),
                 record.level(),
                 message
@@ -156,8 +144,6 @@ fn init_logging(level: log::LevelFilter) -> Result<(), fern::InitError> {
 
     // Catch panics and log them instead of default output to StdErr
     panic::set_hook(Box::new(|info| {
-        let backtrace = Backtrace::new();
-
         let thread = thread::current();
         let thread = thread.name().unwrap_or("unnamed");
 
@@ -169,23 +155,25 @@ fn init_logging(level: log::LevelFilter) -> Result<(), fern::InitError> {
             },
         };
 
+        let backtrace = backtrace::Backtrace::new();
+
         match info.location() {
             Some(location) => {
                 error!(
-                    target: "panic", "thread '{}' panicked at '{}': {}:{}{:?}",
+                    target: "panic", "thread '{}' panicked at '{}': {}:{}\n{:?}",
                     thread,
                     msg,
                     location.file(),
                     location.line(),
-                    Shim(backtrace)
+                    backtrace
                 );
             }
             None => error!(
                 target: "panic",
-                "thread '{}' panicked at '{}'{:?}",
+                "thread '{}' panicked at '{}'\n{:?}",
                 thread,
                 msg,
-                Shim(backtrace)
+                backtrace
             ),
         }
     }));
@@ -209,30 +197,6 @@ fn chain_syslog(logger: fern::Dispatch) -> fern::Dispatch {
             logger
         }
     }
-}
-
-fn check_db() {
-    if cfg!(feature = "sqlite") {
-        let url = CONFIG.database_url();
-        let path = Path::new(&url);
-
-        if let Some(parent) = path.parent() {
-            if create_dir_all(parent).is_err() {
-                error!("Error creating database directory");
-                exit(1);
-            }
-        }
-
-        // Turn on WAL in SQLite
-        if CONFIG.enable_db_wal() {
-            use diesel::RunQueryDsl;
-            let connection = db::get_connection().expect("Can't connect to DB");
-            diesel::sql_query("PRAGMA journal_mode=wal")
-                .execute(&connection)
-                .expect("Failed to turn on WAL");
-        }
-    }
-    db::get_connection().expect("Can't connect to DB");
 }
 
 fn create_icon_cache_folder() {
@@ -296,46 +260,22 @@ fn check_web_vault() {
     let index_path = Path::new(&CONFIG.web_vault_folder()).join("index.html");
 
     if !index_path.exists() {
-        error!("Web vault is not found. To install it, please follow the steps in: ");
+        error!("Web vault is not found at '{}'. To install it, please follow the steps in: ", CONFIG.web_vault_folder());
         error!("https://github.com/dani-garcia/bitwarden_rs/wiki/Building-binary#install-the-web-vault");
         error!("You can also set the environment variable 'WEB_VAULT_ENABLED=false' to disable it");
         exit(1);
     }
 }
 
-// Embed the migrations from the migrations folder into the application
-// This way, the program automatically migrates the database to the latest version
-// https://docs.rs/diesel_migrations/*/diesel_migrations/macro.embed_migrations.html
-#[allow(unused_imports)]
-mod migrations {
-
-    #[cfg(feature = "sqlite")]
-    embed_migrations!("migrations/sqlite");
-    #[cfg(feature = "mysql")]
-    embed_migrations!("migrations/mysql");
-    #[cfg(feature = "postgresql")]
-    embed_migrations!("migrations/postgresql");
-
-    pub fn run_migrations() {
-        // Make sure the database is up to date (create if it doesn't exist, or run the migrations)
-        let connection = crate::db::get_connection().expect("Can't connect to DB");
-
-        use std::io::stdout;
-
-        // Disable Foreign Key Checks during migration
-        use diesel::RunQueryDsl;
-        #[cfg(feature = "postgres")]
-        diesel::sql_query("SET CONSTRAINTS ALL DEFERRED").execute(&connection).expect("Failed to disable Foreign Key Checks during migrations");
-        #[cfg(feature = "mysql")]
-        diesel::sql_query("SET FOREIGN_KEY_CHECKS = 0").execute(&connection).expect("Failed to disable Foreign Key Checks during migrations");
-        #[cfg(feature = "sqlite")]
-        diesel::sql_query("PRAGMA defer_foreign_keys = ON").execute(&connection).expect("Failed to disable Foreign Key Checks during migrations");
-
-        embedded_migrations::run_with_output(&connection, &mut stdout()).expect("Can't run migrations");
-    }
-}
-
 fn launch_rocket(extra_debug: bool) {
+    let pool = match db::DbPool::from_config() {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Error creating database pool: {:?}", e);
+            exit(1);
+        }
+    };
+
     let basepath = &CONFIG.domain_path();
 
     // If adding more paths here, consider also adding them to
@@ -347,7 +287,7 @@ fn launch_rocket(extra_debug: bool) {
         .mount(&[basepath, "/identity"].concat(), api::identity_routes())
         .mount(&[basepath, "/icons"].concat(), api::icons_routes())
         .mount(&[basepath, "/notifications"].concat(), api::notifications_routes())
-        .manage(db::init_pool())
+        .manage(pool)
         .manage(api::start_notification_server())
         .attach(util::AppHeaders())
         .attach(util::CORS())

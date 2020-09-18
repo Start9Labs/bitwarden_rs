@@ -1,23 +1,17 @@
+use std::{
+    fs::{create_dir_all, remove_file, symlink_metadata, File},
+    io::prelude::*,
+    net::{IpAddr, ToSocketAddrs},
+    time::{Duration, SystemTime},
+};
+
 use once_cell::sync::Lazy;
-use std::fs::{create_dir_all, remove_file, symlink_metadata, File};
-use std::io::prelude::*;
-use std::net::ToSocketAddrs;
-use std::time::{Duration, SystemTime};
-
-use rocket::http::ContentType;
-use rocket::response::Content;
-use rocket::Route;
-
-use reqwest::{Url, header::HeaderMap, blocking::Client, blocking::Response};
-
-use rocket::http::Cookie;
-
 use regex::Regex;
+use reqwest::{blocking::Client, blocking::Response, header::HeaderMap, Url};
+use rocket::{http::ContentType, http::Cookie, response::Content, Route};
 use soup::prelude::*;
 
-use crate::error::Error;
-use crate::CONFIG;
-use crate::util::Cached;
+use crate::{error::Error, util::Cached, CONFIG};
 
 pub fn routes() -> Vec<Route> {
     routes![icon]
@@ -35,6 +29,11 @@ static CLIENT: Lazy<Client> = Lazy::new(|| {
         .build()
         .unwrap()
 });
+
+static ICON_REL_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"icon$|apple.*icon").unwrap());
+static ICON_HREF_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\w+\.(jpg|jpeg|png|ico)(\?.*)?$|^data:image.*base64").unwrap());
+static ICON_SIZE_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)(\d+)\D*(\d+)").unwrap());
 
 fn is_valid_domain(domain: &str) -> bool {
     // Don't allow empty or too big domains or path traversal
@@ -64,13 +63,111 @@ fn icon(domain: String) -> Cached<Content<Vec<u8>>> {
     Cached::long(Content(icon_type, get_icon(&domain)))
 }
 
+/// TODO: This is extracted from IpAddr::is_global, which is unstable:
+/// https://doc.rust-lang.org/nightly/std/net/enum.IpAddr.html#method.is_global
+/// Remove once https://github.com/rust-lang/rust/issues/27709 is merged
+#[cfg(not(feature = "unstable"))]
+fn is_global(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
+            // globally routable addresses in the 192.0.0.0/24 range.
+            if u32::from(ip) == 0xc0000009 || u32::from(ip) == 0xc000000a {
+                return true;
+            }
+            !ip.is_private()
+            && !ip.is_loopback()
+            && !ip.is_link_local()
+            && !ip.is_broadcast()
+            && !ip.is_documentation()
+            && !(ip.octets()[0] == 100 && (ip.octets()[1] & 0b1100_0000 == 0b0100_0000))
+            && !(ip.octets()[0] == 192 && ip.octets()[1] == 0 && ip.octets()[2] == 0)
+            && !(ip.octets()[0] & 240 == 240 && !ip.is_broadcast())
+            && !(ip.octets()[0] == 198 && (ip.octets()[1] & 0xfe) == 18)
+            // Make sure the address is not in 0.0.0.0/8
+            && ip.octets()[0] != 0
+        }
+        IpAddr::V6(ip) => {
+            if ip.is_multicast() && ip.segments()[0] & 0x000f == 14 {
+                true
+            } else {
+                !ip.is_multicast()
+                    && !ip.is_loopback()
+                    && !((ip.segments()[0] & 0xffc0) == 0xfe80)
+                    && !((ip.segments()[0] & 0xfe00) == 0xfc00)
+                    && !ip.is_unspecified()
+                    && !((ip.segments()[0] == 0x2001) && (ip.segments()[1] == 0xdb8))
+            }
+        }
+    }
+}
+
+#[cfg(feature = "unstable")]
+fn is_global(ip: IpAddr) -> bool {
+    ip.is_global()
+}
+
+/// These are some tests to check that the implementations match
+/// The IPv4 can be all checked in 5 mins or so and they are correct as of nightly 2020-07-11
+/// The IPV6 can't be checked in a reasonable time, so we check  about ten billion random ones, so far correct
+/// Note that the is_global implementation is subject to change as new IP RFCs are created
+///
+/// To run while showing progress output:
+/// cargo test --features sqlite,unstable -- --nocapture --ignored
+#[cfg(test)]
+#[cfg(feature = "unstable")]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn test_ipv4_global() {
+        for a in 0..u8::MAX {
+            println!("Iter: {}/255", a);
+            for b in 0..u8::MAX {
+                for c in 0..u8::MAX {
+                    for d in 0..u8::MAX {
+                        let ip = IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d));
+                        assert_eq!(ip.is_global(), is_global(ip))
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ipv6_global() {
+        use ring::rand::{SecureRandom, SystemRandom};
+        let mut v = [0u8; 16];
+        let rand = SystemRandom::new();
+        for i in 0..1_000 {
+            println!("Iter: {}/1_000", i);
+            for _ in 0..10_000_000 {
+                rand.fill(&mut v).expect("Error generating random values");
+                let ip = IpAddr::V6(std::net::Ipv6Addr::new(
+                    (v[14] as u16) << 8 | v[15] as u16,
+                    (v[12] as u16) << 8 | v[13] as u16,
+                    (v[10] as u16) << 8 | v[11] as u16,
+                    (v[8] as u16) << 8 | v[9] as u16,
+                    (v[6] as u16) << 8 | v[7] as u16,
+                    (v[4] as u16) << 8 | v[5] as u16,
+                    (v[2] as u16) << 8 | v[3] as u16,
+                    (v[0] as u16) << 8 | v[1] as u16,
+                ));
+                assert_eq!(ip.is_global(), is_global(ip))
+            }
+        }
+    }
+}
+
 fn check_icon_domain_is_blacklisted(domain: &str) -> bool {
     let mut is_blacklisted = CONFIG.icon_blacklist_non_global_ips()
         && (domain, 0)
             .to_socket_addrs()
             .map(|x| {
                 for ip_port in x {
-                    if !ip_port.ip().is_global() {
+                    if !is_global(ip_port.ip()) {
                         warn!("IP {} for domain '{}' is not a global IP!", ip_port.ip(), domain);
                         return true;
                     }
@@ -241,8 +338,8 @@ fn get_icon_url(domain: &str) -> Result<(Vec<Icon>, String), Error> {
         // Search for and filter
         let favicons = soup
             .tag("link")
-            .attr("rel", Regex::new(r"icon$|apple.*icon")?) // Only use icon rels
-            .attr("href", Regex::new(r"(?i)\w+\.(jpg|jpeg|png|ico)(\?.*)?$|^data:image.*base64")?) // Only allow specific extensions
+            .attr("rel", ICON_REL_REGEX.clone()) // Only use icon rels
+            .attr("href", ICON_HREF_REGEX.clone()) // Only allow specific extensions
             .find_all();
 
         // Loop through all the found icons and determine it's priority
@@ -354,7 +451,7 @@ fn parse_sizes(sizes: Option<String>) -> (u16, u16) {
     let mut height: u16 = 0;
 
     if let Some(sizes) = sizes {
-        match Regex::new(r"(?x)(\d+)\D*(\d+)").unwrap().captures(sizes.trim()) {
+        match ICON_SIZE_REGEX.captures(sizes.trim()) {
             None => {}
             Some(dimensions) => {
                 if dimensions.len() >= 3 {

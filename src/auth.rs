@@ -1,17 +1,19 @@
 //
 // JWT Handling
 //
-use crate::util::read_file;
 use chrono::{Duration, Utc};
-use once_cell::sync::Lazy;
 use num_traits::FromPrimitive;
+use once_cell::sync::Lazy;
 
-use jsonwebtoken::{self, Algorithm, Header, EncodingKey, DecodingKey};
+use jsonwebtoken::{self, Algorithm, DecodingKey, EncodingKey, Header};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 
-use crate::error::{Error, MapResult};
-use crate::CONFIG;
+use crate::{
+    error::{Error, MapResult},
+    util::read_file,
+    CONFIG,
+};
 
 const JWT_ALGORITHM: Algorithm = Algorithm::RS256;
 
@@ -213,11 +215,14 @@ pub fn generate_admin_claims() -> AdminJWTClaims {
 //
 // Bearer token authentication
 //
-use rocket::request::{self, FromRequest, Request};
-use rocket::Outcome;
+use rocket::{
+    request::{FromRequest, Request, Outcome},
+};
 
-use crate::db::models::{Device, User, UserOrgStatus, UserOrgType, UserOrganization};
-use crate::db::DbConn;
+use crate::db::{
+    models::{Device, User, UserOrgStatus, UserOrgType, UserOrganization},
+    DbConn,
+};
 
 pub struct Headers {
     pub host: String,
@@ -228,7 +233,7 @@ pub struct Headers {
 impl<'a, 'r> FromRequest<'a, 'r> for Headers {
     type Error = &'static str;
 
-    fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+    fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
         let headers = request.headers();
 
         // Get host
@@ -329,7 +334,7 @@ fn get_org_id(request: &Request) -> Option<String> {
 impl<'a, 'r> FromRequest<'a, 'r> for OrgHeaders {
     type Error = &'static str;
 
-    fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+    fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
         match request.guard::<Headers>() {
             Outcome::Forward(_) => Outcome::Forward(()),
             Outcome::Failure(f) => Outcome::Failure(f),
@@ -366,7 +371,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for OrgHeaders {
                                 }
                             },
                         })
-                    },
+                    }
                     _ => err_handler!("Error getting the organization id"),
                 }
             }
@@ -384,7 +389,7 @@ pub struct AdminHeaders {
 impl<'a, 'r> FromRequest<'a, 'r> for AdminHeaders {
     type Error = &'static str;
 
-    fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+    fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
         match request.guard::<OrgHeaders>() {
             Outcome::Forward(_) => Outcome::Forward(()),
             Outcome::Failure(f) => Outcome::Failure(f),
@@ -404,14 +409,14 @@ impl<'a, 'r> FromRequest<'a, 'r> for AdminHeaders {
     }
 }
 
-impl Into<Headers> for AdminHeaders {    
-    fn into(self) -> Headers { 
+impl Into<Headers> for AdminHeaders {
+    fn into(self) -> Headers {
         Headers {
             host: self.host,
             device: self.device,
-            user: self.user
+            user: self.user,
         }
-     }
+    }
 }
 
 pub struct OwnerHeaders {
@@ -423,7 +428,7 @@ pub struct OwnerHeaders {
 impl<'a, 'r> FromRequest<'a, 'r> for OwnerHeaders {
     type Error = &'static str;
 
-    fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+    fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
         match request.guard::<OrgHeaders>() {
             Outcome::Forward(_) => Outcome::Forward(()),
             Outcome::Failure(f) => Outcome::Failure(f),
@@ -454,7 +459,7 @@ pub struct ClientIp {
 impl<'a, 'r> FromRequest<'a, 'r> for ClientIp {
     type Error = ();
 
-    fn from_request(req: &'a Request<'r>) -> request::Outcome<Self, Self::Error> {
+    fn from_request(req: &'a Request<'r>) -> Outcome<Self, Self::Error> {
         let ip = if CONFIG._ip_header_enabled() {
             req.headers().get_one(&CONFIG.ip_header()).and_then(|ip| {
                 match ip.find(',') {

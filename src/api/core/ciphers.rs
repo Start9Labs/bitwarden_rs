@@ -1,26 +1,20 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use rocket::http::ContentType;
-use rocket::{request::Form, Data, Route};
-
+use rocket::{http::ContentType, request::Form, Data, Route};
 use rocket_contrib::json::Json;
 use serde_json::Value;
 
-use multipart::server::save::SavedData;
-use multipart::server::{Multipart, SaveResult};
-
 use data_encoding::HEXLOWER;
+use multipart::server::{save::SavedData, Multipart, SaveResult};
 
-use crate::db::models::*;
-use crate::db::DbConn;
-
-use crate::crypto;
-
-use crate::api::{self, EmptyResult, JsonResult, JsonUpcase, Notify, PasswordData, UpdateType};
-use crate::auth::Headers;
-
-use crate::CONFIG;
+use crate::{
+    api::{self, EmptyResult, JsonResult, JsonUpcase, Notify, PasswordData, UpdateType},
+    auth::Headers,
+    crypto,
+    db::{models::*, DbConn},
+    CONFIG,
+};
 
 pub fn routes() -> Vec<Route> {
     routes![
@@ -88,7 +82,7 @@ fn sync(data: Form<SyncData>, headers: Headers, conn: DbConn) -> JsonResult {
     let policies = OrgPolicy::find_by_user(&headers.user.uuid, &conn);
     let policies_json: Vec<Value> = policies.iter().map(OrgPolicy::to_json).collect();
 
-    let ciphers = Cipher::find_by_user(&headers.user.uuid, &conn);
+    let ciphers = Cipher::find_by_user_visible(&headers.user.uuid, &conn);
     let ciphers_json: Vec<Value> = ciphers
         .iter()
         .map(|c| c.to_json(&headers.host, &headers.user.uuid, &conn))
@@ -113,7 +107,7 @@ fn sync(data: Form<SyncData>, headers: Headers, conn: DbConn) -> JsonResult {
 
 #[get("/ciphers")]
 fn get_ciphers(headers: Headers, conn: DbConn) -> JsonResult {
-    let ciphers = Cipher::find_by_user(&headers.user.uuid, &conn);
+    let ciphers = Cipher::find_by_user_visible(&headers.user.uuid, &conn);
 
     let ciphers_json: Vec<Value> = ciphers
         .iter()
@@ -309,7 +303,6 @@ pub fn update_cipher_from_data(
     type_data["PasswordHistory"] = data.PasswordHistory.clone().unwrap_or(Value::Null);
     // TODO: ******* Backwards compat end **********
 
-    cipher.favorite = data.Favorite.unwrap_or(false);
     cipher.name = data.Name;
     cipher.notes = data.Notes;
     cipher.fields = data.Fields.map(|f| f.to_string());
@@ -318,6 +311,7 @@ pub fn update_cipher_from_data(
 
     cipher.save(&conn)?;
     cipher.move_to_folder(data.FolderId, &headers.user.uuid, &conn)?;
+    cipher.set_favorite(data.Favorite, &headers.user.uuid, &conn)?;
 
     if ut != UpdateType::None {
         nt.send_cipher_update(ut, &cipher, &cipher.update_users_revision(&conn));
@@ -415,6 +409,11 @@ fn put_cipher(uuid: String, data: JsonUpcase<CipherData>, headers: Headers, conn
         Some(cipher) => cipher,
         None => err!("Cipher doesn't exist"),
     };
+
+    // TODO: Check if only the folder ID or favorite status is being changed.
+    // These are per-user properties that technically aren't part of the
+    // cipher itself, so the user shouldn't need write access to change these.
+    // Interestingly, upstream Bitwarden doesn't properly handle this either.
 
     if !cipher.is_write_accessible_to_user(&headers.user.uuid, &conn) {
         err!("Cipher is not write accessible")
@@ -617,9 +616,8 @@ fn share_cipher_by_uuid(
     match data.Cipher.OrganizationId.clone() {
         // If we don't get an organization ID, we don't do anything
         // No error because this is used when using the Clone functionality
-        None => {},
+        None => {}
         Some(organization_uuid) => {
-
             for uuid in &data.CollectionIds {
                 match Collection::find_by_uuid_and_org(uuid, &organization_uuid, &conn) {
                     None => err!("Invalid collection ID provided"),
@@ -1006,11 +1004,12 @@ fn _delete_cipher_by_uuid(uuid: &str, headers: &Headers, conn: &DbConn, soft_del
     if soft_delete {
         cipher.deleted_at = Some(chrono::Utc::now().naive_utc());
         cipher.save(&conn)?;
+        nt.send_cipher_update(UpdateType::CipherUpdate, &cipher, &cipher.update_users_revision(&conn));
     } else {
         cipher.delete(&conn)?;
+        nt.send_cipher_update(UpdateType::CipherDelete, &cipher, &cipher.update_users_revision(&conn));
     }
 
-    nt.send_cipher_update(UpdateType::CipherDelete, &cipher, &cipher.update_users_revision(&conn));
     Ok(())
 }
 

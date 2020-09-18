@@ -1,1 +1,1 @@
-docker/armv7/sqlite/Dockerfile
+docker/arm32v7/Dockerfile
