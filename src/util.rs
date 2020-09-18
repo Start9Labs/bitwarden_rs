@@ -1,11 +1,14 @@
 //
 // Web Headers and caching
 //
-use rocket::fairing::{Fairing, Info, Kind};
-use rocket::http::{ContentType, Header, HeaderMap, Method, Status};
-use rocket::response::{self, Responder};
-use rocket::{Data, Request, Response, Rocket};
 use std::io::Cursor;
+
+use rocket::{
+    fairing::{Fairing, Info, Kind},
+    http::{ContentType, Header, HeaderMap, Method, Status},
+    response::{self, Responder},
+    Data, Request, Response, Rocket,
+};
 
 use crate::CONFIG;
 
@@ -157,9 +160,7 @@ impl Fairing for BetterLogging {
         }
         let uri = request.uri();
         let uri_path = uri.path();
-        // FIXME: trim_start_matches() could result in over-trimming in pathological cases;
-        // strip_prefix() would be a better option once it's stable.
-        let uri_subpath = uri_path.trim_start_matches(&CONFIG.domain_path());
+        let uri_subpath = uri_path.strip_prefix(&CONFIG.domain_path()).unwrap_or(uri_path);
         if self.0 || LOGGED_ROUTES.iter().any(|r| uri_subpath.starts_with(r)) {
             match uri.query() {
                 Some(q) => info!(target: "request", "{} {}?{}", method, uri_path, &q[..q.len().min(30)]),
@@ -172,9 +173,8 @@ impl Fairing for BetterLogging {
         if !self.0 && request.method() == Method::Options {
             return;
         }
-        // FIXME: trim_start_matches() could result in over-trimming in pathological cases;
-        // strip_prefix() would be a better option once it's stable.
-        let uri_subpath = request.uri().path().trim_start_matches(&CONFIG.domain_path());
+        let uri_path = request.uri().path();
+        let uri_subpath = uri_path.strip_prefix(&CONFIG.domain_path()).unwrap_or(uri_path);
         if self.0 || LOGGED_ROUTES.iter().any(|r| uri_subpath.starts_with(r)) {
             let status = response.status();
             if let Some(route) = request.route() {
@@ -189,9 +189,11 @@ impl Fairing for BetterLogging {
 //
 // File handling
 //
-use std::fs::{self, File};
-use std::io::{Read, Result as IOResult};
-use std::path::Path;
+use std::{
+    fs::{self, File},
+    io::{Read, Result as IOResult},
+    path::Path,
+};
 
 pub fn file_exists(path: &str) -> bool {
     Path::new(path).exists()
@@ -253,7 +255,6 @@ pub fn get_uuid() -> String {
 // String util methods
 //
 
-use std::ops::Try;
 use std::str::FromStr;
 
 pub fn upcase_first(s: &str) -> String {
@@ -264,12 +265,12 @@ pub fn upcase_first(s: &str) -> String {
     }
 }
 
-pub fn try_parse_string<S, T, U>(string: impl Try<Ok = S, Error = U>) -> Option<T>
+pub fn try_parse_string<S, T>(string: Option<S>) -> Option<T>
 where
     S: AsRef<str>,
     T: FromStr,
 {
-    if let Ok(Ok(value)) = string.into_result().map(|s| s.as_ref().parse::<T>()) {
+    if let Some(Ok(value)) = string.map(|s| s.as_ref().parse::<T>()) {
         Some(value)
     } else {
         None
@@ -286,7 +287,7 @@ pub fn get_env<V>(key: &str) -> Option<V>
 where
     V: FromStr,
 {
-    try_parse_string(env::var(key))
+    try_parse_string(env::var(key).ok())
 }
 
 const TRUE_VALUES: &[&str] = &["true", "t", "yes", "y", "1"];

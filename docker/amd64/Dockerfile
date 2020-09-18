@@ -10,19 +10,18 @@
 #  It can be viewed in multiple ways:
 #  - From the https://hub.docker.com/repository/docker/bitwardenrs/web-vault/tags page, click the tag name and the digest should be there.
 #  - From the console, with the following commands:
-#      docker pull bitwardenrs/web-vault:v2.14.0
-#      docker image inspect --format "{{.RepoDigests}}" bitwardenrs/web-vault:v2.14.0
+#      docker pull bitwardenrs/web-vault:v2.15.1
+#      docker image inspect --format "{{.RepoDigests}}" bitwardenrs/web-vault:v2.15.1
 #
 #  - To do the opposite, and get the tag from the hash, you can do:
-#      docker image inspect --format "{{.RepoTags}}" bitwardenrs/web-vault@sha256:c62e0b8698562e03fe2759374f3ecd760d9612e4eaf0af4583f231ebf05d6df5
-FROM bitwardenrs/web-vault@sha256:c62e0b8698562e03fe2759374f3ecd760d9612e4eaf0af4583f231ebf05d6df5 as vault
+#      docker image inspect --format "{{.RepoTags}}" bitwardenrs/web-vault@sha256:afba1e3bded09dc0a6a0dbacb3363ac33b6f122b4b26d3682cafb9115bdf785c
+FROM bitwardenrs/web-vault@sha256:afba1e3bded09dc0a6a0dbacb3363ac33b6f122b4b26d3682cafb9115bdf785c as vault
 
 ########################## BUILD IMAGE  ##########################
-# Musl build image for statically compiled binary
-FROM clux/muslrust:nightly-2020-03-09 as build
+FROM rust:1.45 as build
 
-# set postgresql backend
-ARG DB=postgresql
+# AMD64 supports all
+ARG DB=sqlite,mysql,postgresql
 
 # Build time options to avoid dpkg warnings and help with reproducible builds.
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC TERM=xterm-256color
@@ -30,12 +29,10 @@ ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC TERM=xterm-256color
 # Don't download rust docs
 RUN rustup set profile minimal
 
-ENV USER "root"
-ENV RUSTFLAGS='-C link-arg=-s'
-
-# Install PostgreSQL package
+# Install DB packages
 RUN apt-get update && apt-get install -y \
     --no-install-recommends \
+    libmariadb-dev \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,8 +44,6 @@ WORKDIR /app
 COPY ./Cargo.* ./
 COPY ./rust-toolchain ./rust-toolchain
 COPY ./build.rs ./build.rs
-
-RUN rustup target add x86_64-unknown-linux-musl
 
 # Builds your dependencies and removes the
 # dummy project, except the target folder
@@ -70,19 +65,22 @@ RUN cargo build --features ${DB} --release
 ######################## RUNTIME IMAGE  ########################
 # Create a new stage with a minimal image
 # because we already have a binary built
-FROM alpine:3.11
+FROM debian:buster-slim
 
 ENV ROCKET_ENV "staging"
 ENV ROCKET_PORT=80
 ENV ROCKET_WORKERS=10
-ENV SSL_CERT_DIR=/etc/ssl/certs
 
 # Install needed libraries
-RUN apk add --no-cache \
-        openssl \
-        curl \
-        postgresql-libs \
-        ca-certificates
+RUN apt-get update && apt-get install -y \
+    --no-install-recommends \
+    openssl \
+    ca-certificates \
+    curl \
+    sqlite3 \
+    libmariadbclient-dev \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /data
 VOLUME /data
@@ -93,12 +91,13 @@ EXPOSE 3012
 # and the binary from the "build" stage to the current stage
 COPY Rocket.toml .
 COPY --from=vault /web-vault ./web-vault
-COPY --from=build /app/target/x86_64-unknown-linux-musl/release/bitwarden_rs .
+COPY --from=build app/target/release/bitwarden_rs .
 
 COPY docker/healthcheck.sh /healthcheck.sh
+COPY docker/start.sh /start.sh
 
 HEALTHCHECK --interval=60s --timeout=10s CMD ["/healthcheck.sh"]
 
 # Configures the startup!
 WORKDIR /
-CMD ["/bitwarden_rs"]
+CMD ["/start.sh"]

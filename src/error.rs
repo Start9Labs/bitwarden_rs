@@ -34,6 +34,7 @@ macro_rules! make_error {
 }
 
 use diesel::result::Error as DieselErr;
+use diesel::r2d2::PoolError as R2d2Err;
 use handlebars::RenderError as HbErr;
 use jsonwebtoken::errors::Error as JWTErr;
 use regex::Error as RegexErr;
@@ -41,7 +42,6 @@ use reqwest::Error as ReqErr;
 use serde_json::{Error as SerdeErr, Value};
 use std::io::Error as IOErr;
 
-use std::option::NoneError as NoneErr;
 use std::time::SystemTimeError as TimeErr;
 use u2f::u2ferror::U2fError as U2fErr;
 use yubico::yubicoerror::YubicoError as YubiErr;
@@ -49,7 +49,7 @@ use yubico::yubicoerror::YubicoError as YubiErr;
 use lettre::address::AddressError as AddrErr;
 use lettre::error::Error as LettreErr;
 use lettre::message::mime::FromStrError as FromStrErr;
-use lettre::transport::smtp::error::Error as SmtpErr;
+use lettre::transport::smtp::Error as SmtpErr;
 
 #[derive(Serialize)]
 pub struct Empty {}
@@ -67,6 +67,7 @@ make_error! {
     // Used for special return values, like 2FA errors
     JsonError(Value):     _no_source,  _serialize,
     DbError(DieselErr):   _has_source, _api_error,
+    R2d2Error(R2d2Err):   _has_source, _api_error,
     U2fError(U2fErr):     _has_source, _api_error,
     SerdeError(SerdeErr): _has_source, _api_error,
     JWTError(JWTErr):     _has_source, _api_error,
@@ -78,17 +79,10 @@ make_error! {
     RegexError(RegexErr): _has_source, _api_error,
     YubiError(YubiErr):   _has_source, _api_error,
 
-    LetreError(LettreErr):    _has_source, _api_error,
+    LettreError(LettreErr):   _has_source, _api_error,
     AddressError(AddrErr):    _has_source, _api_error,
     SmtpError(SmtpErr):       _has_source, _api_error,
     FromStrError(FromStrErr): _has_source, _api_error,
-}
-
-// This is implemented by hand because NoneError doesn't implement neither Display nor Error
-impl From<NoneErr> for Error {
-    fn from(_: NoneErr) -> Self {
-        Error::from(("NoneError", String::new()))
-    }
 }
 
 impl std::fmt::Debug for Error {
@@ -241,10 +235,10 @@ macro_rules! err_json {
 macro_rules! err_handler {
     ($expr:expr) => {{
         error!(target: "auth", "Unauthorized Error: {}", $expr);
-        return rocket::Outcome::Failure((rocket::http::Status::Unauthorized, $expr));
+        return ::rocket::request::Outcome::Failure((rocket::http::Status::Unauthorized, $expr));
     }};
     ($usr_msg:expr, $log_value:expr) => {{
         error!(target: "auth", "Unauthorized Error: {}. {}", $usr_msg, $log_value);
-        return rocket::Outcome::Failure((rocket::http::Status::Unauthorized, $usr_msg));
+        return ::rocket::request::Outcome::Failure((rocket::http::Status::Unauthorized, $usr_msg));
     }};
 }

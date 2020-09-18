@@ -1,19 +1,22 @@
-use chrono::Utc;
+use chrono::Local;
 use num_traits::FromPrimitive;
-use rocket::request::{Form, FormItems, FromForm};
-use rocket::Route;
+use rocket::{
+    request::{Form, FormItems, FromForm},
+    Route,
+};
 use rocket_contrib::json::Json;
 use serde_json::Value;
 
-use crate::api::core::two_factor::email::EmailTokenData;
-use crate::api::core::two_factor::{duo, email, yubikey};
-use crate::api::{ApiResult, EmptyResult, JsonResult};
-use crate::auth::ClientIp;
-use crate::db::models::*;
-use crate::db::DbConn;
-use crate::mail;
-use crate::util;
-use crate::CONFIG;
+use crate::{
+    api::{
+        core::two_factor::{duo, email, email::EmailTokenData, yubikey},
+        ApiResult, EmptyResult, JsonResult,
+    },
+    auth::ClientIp,
+    db::{models::*, DbConn},
+    error::MapResult,
+    mail, util, CONFIG,
+};
 
 pub fn routes() -> Vec<Route> {
     routes![login]
@@ -49,10 +52,7 @@ fn _refresh_login(data: ConnectData, conn: DbConn) -> JsonResult {
     let token = data.refresh_token.unwrap();
 
     // Get device by refresh token
-    let mut device = match Device::find_by_refresh_token(&token, &conn) {
-        Some(device) => device,
-        None => err!("Invalid refresh token"),
-    };
+    let mut device = Device::find_by_refresh_token(&token, &conn).map_res("Invalid refresh token")?;
 
     // COMMON
     let user = User::find_by_uuid(&device.user_uuid, &conn).unwrap();
@@ -68,6 +68,11 @@ fn _refresh_login(data: ConnectData, conn: DbConn) -> JsonResult {
         "refresh_token": device.refresh_token,
         "Key": user.akey,
         "PrivateKey": user.private_key,
+
+        "Kdf": user.client_kdf_type,
+        "KdfIterations": user.client_kdf_iter,
+        "ResetMasterPassword": false, // TODO: according to official server seems something like: user.password_hash.is_empty(), but would need testing
+        "scope": "api offline_access"
     })))
 }
 
@@ -97,8 +102,10 @@ fn _password_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult
         )
     }
 
+    let now = Local::now();
+
     if user.verified_at.is_none() && CONFIG.mail_enabled() && CONFIG.signups_verify() {
-        let now = Utc::now().naive_utc();
+        let now = now.naive_utc();
         if user.last_verifying_at.is_none() || now.signed_duration_since(user.last_verifying_at.unwrap()).num_seconds() > CONFIG.signups_verify_resend_time() as i64 {
             let resend_limit = CONFIG.signups_verify_resend_limit() as i32;
             if resend_limit == 0 || user.login_verify_count < resend_limit {
@@ -130,7 +137,7 @@ fn _password_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult
     let twofactor_token = twofactor_auth(&user.uuid, &data, &mut device, &ip, &conn)?;
 
     if CONFIG.mail_enabled() && new_device {
-        if let Err(e) = mail::send_new_device_logged_in(&user.email, &ip.ip.to_string(), &device.updated_at, &device.name) {
+        if let Err(e) = mail::send_new_device_logged_in(&user.email, &ip.ip.to_string(), &now, &device.name) {
             error!("Error sending new device email: {:#?}", e);
 
             if CONFIG.require_device_email() {
@@ -140,7 +147,6 @@ fn _password_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult
     }
 
     // Common
-    let user = User::find_by_uuid(&device.user_uuid, &conn).unwrap();
     let orgs = UserOrganization::find_by_user(&user.uuid, &conn);
 
     let (access_token, expires_in) = device.refresh_tokens(&user, orgs);
@@ -154,6 +160,11 @@ fn _password_login(data: ConnectData, conn: DbConn, ip: &ClientIp) -> JsonResult
         "Key": user.akey,
         "PrivateKey": user.private_key,
         //"TwoFactorToken": "11122233333444555666777888999"
+        
+        "Kdf": user.client_kdf_type,
+        "KdfIterations": user.client_kdf_iter,
+        "ResetMasterPassword": false,// TODO: Same as above
+        "scope": "api offline_access"
     });
 
     if let Some(token) = twofactor_token {
@@ -252,10 +263,7 @@ fn twofactor_auth(
 }
 
 fn _selected_data(tf: Option<TwoFactor>) -> ApiResult<String> {
-    match tf {
-        Some(tf) => Ok(tf.data),
-        None => err!("Two factor doesn't exist"),
-    }
+    tf.map(|t| t.data).map_res("Two factor doesn't exist")
 }
 
 fn _json_err_twofactor(providers: &[i32], user_uuid: &str, conn: &DbConn) -> ApiResult<Value> {

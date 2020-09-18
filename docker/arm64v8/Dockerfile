@@ -10,20 +10,18 @@
 #  It can be viewed in multiple ways:
 #  - From the https://hub.docker.com/repository/docker/bitwardenrs/web-vault/tags page, click the tag name and the digest should be there.
 #  - From the console, with the following commands:
-#      docker pull bitwardenrs/web-vault:v2.14.0
-#      docker image inspect --format "{{.RepoDigests}}" bitwardenrs/web-vault:v2.14.0
+#      docker pull bitwardenrs/web-vault:v2.15.1
+#      docker image inspect --format "{{.RepoDigests}}" bitwardenrs/web-vault:v2.15.1
 #
 #  - To do the opposite, and get the tag from the hash, you can do:
-#      docker image inspect --format "{{.RepoTags}}" bitwardenrs/web-vault@sha256:c62e0b8698562e03fe2759374f3ecd760d9612e4eaf0af4583f231ebf05d6df5
-FROM bitwardenrs/web-vault@sha256:c62e0b8698562e03fe2759374f3ecd760d9612e4eaf0af4583f231ebf05d6df5 as vault
+#      docker image inspect --format "{{.RepoTags}}" bitwardenrs/web-vault@sha256:afba1e3bded09dc0a6a0dbacb3363ac33b6f122b4b26d3682cafb9115bdf785c
+FROM bitwardenrs/web-vault@sha256:afba1e3bded09dc0a6a0dbacb3363ac33b6f122b4b26d3682cafb9115bdf785c as vault
 
 ########################## BUILD IMAGE  ##########################
-# We need to use the Rust build image, because
-# we need the Rust compiler and Cargo tooling
-FROM rust:1.40 as build
+FROM rust:1.45 as build
 
-# set mysql backend
-ARG DB=mysql
+# ARM only supports SQLite for now
+ARG DB=sqlite
 
 # Build time options to avoid dpkg warnings and help with reproducible builds.
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC TERM=xterm-256color
@@ -51,12 +49,6 @@ RUN apt-get update \
 
 ENV CARGO_HOME "/root/.cargo"
 ENV USER "root"
-
-# Install MySQL package
-RUN apt-get update && apt-get install -y \
-    --no-install-recommends \
-    libmariadb-dev:arm64 \
-    && rm -rf /var/lib/apt/lists/*
 
 # Creates a dummy project used to grab dependencies
 RUN USER=root cargo new --bin /app
@@ -107,7 +99,7 @@ RUN apt-get update && apt-get install -y \
     openssl \
     ca-certificates \
     curl \
-    libmariadbclient-dev \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /data
@@ -125,9 +117,10 @@ COPY --from=vault /web-vault ./web-vault
 COPY --from=build /app/target/aarch64-unknown-linux-gnu/release/bitwarden_rs .
 
 COPY docker/healthcheck.sh /healthcheck.sh
+COPY docker/start.sh /start.sh
 
 HEALTHCHECK --interval=60s --timeout=10s CMD ["/healthcheck.sh"]
 
 # Configures the startup!
 WORKDIR /
-CMD ["/bitwarden_rs"]
+CMD ["/start.sh"]

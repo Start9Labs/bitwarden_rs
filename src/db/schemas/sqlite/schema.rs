@@ -20,7 +20,6 @@ table! {
         notes -> Nullable<Text>,
         fields -> Nullable<Text>,
         data -> Text,
-        favorite -> Bool,
         password_history -> Nullable<Text>,
         deleted_at -> Nullable<Timestamp>,
     }
@@ -52,6 +51,13 @@ table! {
         push_token -> Nullable<Text>,
         refresh_token -> Text,
         twofactor_remember -> Nullable<Text>,
+    }
+}
+
+table! {
+    favorites (user_uuid, cipher_uuid) {
+        user_uuid -> Text,
+        cipher_uuid -> Text,
     }
 }
 
@@ -141,6 +147,7 @@ table! {
         user_uuid -> Text,
         collection_uuid -> Text,
         read_only -> Bool,
+        hide_passwords -> Bool,
     }
 }
 

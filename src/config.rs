@@ -1,11 +1,14 @@
-use once_cell::sync::Lazy;
 use std::process::exit;
 use std::sync::RwLock;
 
+use once_cell::sync::Lazy;
 use reqwest::Url;
 
-use crate::error::Error;
-use crate::util::{get_env, get_env_bool};
+use crate::{
+    db::DbConnType,
+    error::Error,
+    util::{get_env, get_env_bool},
+};
 
 static CONFIG_FILE: Lazy<String> = Lazy::new(|| {
     let data_folder = get_env("DATA_FOLDER").unwrap_or_else(|| String::from("data"));
@@ -113,6 +116,7 @@ macro_rules! make_config {
                 config.domain_set = _domain_set;
 
                 config.signups_domains_whitelist = config.signups_domains_whitelist.trim().to_lowercase();
+                config.org_creation_users = config.org_creation_users.trim().to_lowercase();
 
                 config
             }
@@ -274,6 +278,9 @@ make_config! {
         signups_verify_resend_limit: u32, true, def,    6;
         /// Email domain whitelist |> Allow signups only from this list of comma-separated domains, even when signups are otherwise disabled
         signups_domains_whitelist: String, true, def,   "".to_string();
+        /// Org creation users |> Allow org creation only by this list of comma-separated user emails.
+        /// Blank or 'all' means all users can create orgs; 'none' means no users can create orgs.
+        org_creation_users:     String, true,   def,    "".to_string();
         /// Allow invitations |> Controls whether users can be invited by organization admins, even when signups are otherwise disabled
         invitations_allowed:    bool,   true,   def,    true;
         /// Password iterations |> Number of server-side passwords hashing iterations.
@@ -327,6 +334,8 @@ make_config! {
         reload_templates:       bool,   true,   def,    false;
         /// Enable extended logging
         extended_logging:       bool,   false,  def,    true;
+        /// Log timestamp format
+        log_timestamp_format:   String, true,   def,    "%Y-%m-%d %H:%M:%S.%3f".to_string();
         /// Enable the log to output to Syslog
         use_syslog:             bool,   false,  def,    false;
         /// Log file path
@@ -391,17 +400,19 @@ make_config! {
         smtp_username:          String, true,   option;
         /// Password
         smtp_password:          Pass,   true,   option;
-        /// Json form auth mechanism |> Defaults for ssl is "Plain" and "Login" and nothing for non-ssl connections. Possible values: ["Plain", "Login", "Xoauth2"]
+        /// Json form auth mechanism |> Defaults for ssl is "Plain" and "Login" and nothing for non-ssl connections. Possible values: ["Plain", "Login", "Xoauth2"]. Multiple options need to be separated by a comma.
         smtp_auth_mechanism:    String, true,   option;
         /// SMTP connection timeout |> Number of seconds when to stop trying to connect to the SMTP server
-        smtp_timeout:           u64,     true,   def,     15;
+        smtp_timeout:           u64,    true,   def,     15;
+        /// Server name sent during HELO |> By default this value should be is on the machine's hostname, but might need to be changed in case it trips some anti-spam filters
+        helo_name:              String, true,   option;
     },
 
     /// Email 2FA Settings
     email_2fa: _enable_email_2fa {
         /// Enabled |> Disabling will prevent users from setting up new email 2FA and using existing email 2FA configured
         _enable_email_2fa:      bool,   true,   auto,    |c| c._enable_smtp && c.smtp_host.is_some();
-        /// Token number length |> Length of the numbers in an email token. Minimum of 6. Maximum is 19.
+        /// Email token size |> Number of digits in an email token (min: 6, max: 19). Note that the Bitwarden clients are hardcoded to mention 6 digit codes regardless of this setting.
         email_token_size:       u32,    true,   def,      6;
         /// Token expiration time |> Maximum time in seconds a token is valid. The time the user has to open email client and copy token.
         email_expiration_time:  u64,    true,   def,      600;
@@ -411,27 +422,25 @@ make_config! {
 }
 
 fn validate_config(cfg: &ConfigItems) -> Result<(), Error> {
-    let db_url = cfg.database_url.to_lowercase();
-    if cfg!(feature = "sqlite") && (db_url.starts_with("mysql:") || db_url.starts_with("postgresql:")) {
-        err!("`DATABASE_URL` is meant for MySQL or Postgres, while this server is meant for SQLite")
-    }
 
-    if cfg!(feature = "mysql") && !db_url.starts_with("mysql:") {
-        err!("`DATABASE_URL` should start with mysql: when using the MySQL server")
-    }
-
-    if cfg!(feature = "postgresql") && !db_url.starts_with("postgresql:") {
-        err!("`DATABASE_URL` should start with postgresql: when using the PostgreSQL server")
-    }
+    // Validate connection URL is valid and DB feature is enabled
+    DbConnType::from_url(&cfg.database_url)?;
 
     let dom = cfg.domain.to_lowercase();
     if !dom.starts_with("http://") && !dom.starts_with("https://") {
-        err!("DOMAIN variable needs to contain the protocol (http, https). Use 'http[s]://bw.example.com' instead of 'bw.example.com'"); 
+        err!("DOMAIN variable needs to contain the protocol (http, https). Use 'http[s]://bw.example.com' instead of 'bw.example.com'");
     }
 
     let whitelist = &cfg.signups_domains_whitelist;
     if !whitelist.is_empty() && whitelist.split(',').any(|d| d.trim().is_empty()) {
         err!("`SIGNUPS_DOMAINS_WHITELIST` contains empty tokens");
+    }
+
+    let org_creation_users = cfg.org_creation_users.trim().to_lowercase();
+    if !(org_creation_users.is_empty() || org_creation_users == "all" || org_creation_users == "none") {
+        if org_creation_users.split(',').any(|u| !u.contains('@')) {
+            err!("`ORG_CREATION_USERS` contains invalid email addresses");
+        }
     }
 
     if let Some(ref token) = cfg.admin_token {
@@ -581,6 +590,19 @@ impl Config {
             self.is_email_domain_allowed(email)
         } else {
             self.signups_allowed()
+        }
+    }
+
+    /// Tests whether the specified user is allowed to create an organization.
+    pub fn is_org_creation_allowed(&self, email: &str) -> bool {
+        let users = self.org_creation_users();
+        if users == "" || users == "all" {
+            true
+        } else if users == "none" {
+            false
+        } else {
+            let email = email.to_lowercase();
+            users.split(',').any(|u| u.trim() == email)
         }
     }
 
