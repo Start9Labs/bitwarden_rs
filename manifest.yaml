@@ -1,10 +1,10 @@
 compat: v0
 id: bitwarden
 version: "1.15.1"
-title: "Bitwarden Server"
+title: "Bitwarden"
 description:
-  short: "An Open Source Password Manager"
-  long: "A free and open-source password management service that stores sensitive information such as website credentials in an encrypted vault. From https://github.com/dani-garcia/bitwarden_rs."
+  short: "Awesome password manager"
+  long: "A secure password manager for storing and autofilling sensitive information such as usernames and passwords, credit cards, identities, and notes. All data are stored in an encrypted vault on your Embassy."
 release-notes: |
   - Fixed error when cloning attachments with ciphers, note that attachments are not cloned
   - Fixed version check when a commit hasn't been made since the last release
