@@ -1,10 +1,10 @@
 compat: v0
 id: bitwarden
 version: "1.15.1"
-title: "Bitwarden"
+title: "Bitwarden RS"
 description:
-  short: "Awesome password manager"
-  long: "A secure password manager for storing and autofilling sensitive information such as usernames and passwords, credit cards, identities, and notes. All data are stored in an encrypted vault on your Embassy."
+  short: "Secure password management"
+  long: "Bitwarden RS is a lightweight and secure password manager for storing and autofilling sensitive information such as usernames and passwords, credit cards, identities, and notes. All data are stored in an encrypted vault on your Embassy."
 release-notes: |
   - Fixed error when cloning attachments with ciphers, note that attachments are not cloned
   - Fixed version check when a commit hasn't been made since the last release
